@@ -1,0 +1,35 @@
+# Render Blueprint: one always-running Docker web service (Next.js + Socket.io +
+# escalation ticker). The database is Neon; paste its URLs when Render asks.
+services:
+  - type: web
+    name: istanbul-abuja
+    runtime: docker
+    # Free instances sleep after 15 min without traffic (live alerts and escalations
+    # stop, first visit takes ~1 min). Switch to "starter" before real service.
+    plan: free
+    # Same AWS region as the Neon database (us-east-2).
+    region: ohio
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /staff/login
+    # Deploy only commits whose GitHub Actions checks passed.
+    autoDeployTrigger: checksPass
+    envVars:
+      # Neon pooled connection string (used by the app)
+      - key: DATABASE_URL
+        sync: false
+      # Neon direct connection string (used for migrations on start)
+      - key: DATABASE_URL_UNPOOLED
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: INTERNAL_SECRET
+        generateValue: true
+      - key: VAPID_PUBLIC_KEY
+        value: BCu862-FtE9RHXN0Khw4czZxBx4trDpDDpQBn_wB0FbPZLfyBIN0LUhjC27Qzmqev74qeNVFnDGpF89qnupMDUU
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      # Contact for push services; use a real mailbox.
+      - key: VAPID_SUBJECT
+        value: mailto:admin@example.com
+      # APP_URL defaults to the onrender.com address. Add it here (https://your-domain)
+      # after attaching a custom domain, before printing QR table cards.

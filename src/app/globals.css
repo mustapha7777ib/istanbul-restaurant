@@ -1,0 +1,158 @@
+@import "tailwindcss";
+
+/*
+ * Istanbul Cafe & Restaurant — taken from the room itself: crimson velvet banquettes
+ * and curtains (the crimson of their logo, #911949), navy velvet chairs, gold
+ * chandeliers and arched gold window frames, white tablecloths and columns.
+ * `brand` = logo crimson, `ink` = navy, `linen` = ivory page, `gold` = brass accents
+ * on dark surfaces, `moss` = the terrace greenery, used for "done".
+ * Ramps are even steps in OKLCH; brand-600 is the logo colour.
+ */
+@theme {
+  --font-sans: var(--font-montserrat), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-marcellus), ui-serif, Georgia, serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --color-brand-50: #fef4f6;
+  --color-brand-100: #fee3e9;
+  --color-brand-200: #fcc5d1;
+  --color-brand-300: #f29cb2;
+  --color-brand-400: #de698c;
+  --color-brand-500: #bc3b68;
+  --color-brand-600: #911949;
+  --color-brand-700: #76123a;
+  --color-brand-800: #5d0f2d;
+  --color-brand-900: #470c22;
+
+  --color-ink-950: #070e1d;
+  --color-ink-900: #0c162c;
+  --color-ink-800: #15213a;
+  --color-ink-700: #222e49;
+  --color-ink-600: #394662;
+  --color-ink-500: #56637d;
+
+  --color-linen-50: #fcfaf7;
+  --color-linen-100: #f7f4ed;
+  --color-linen-200: #eee9e0;
+  --color-linen-300: #e2dace;
+  --color-linen-400: #c8bcac;
+
+  --color-gold-200: #f3deab;
+  --color-gold-300: #e9c678;
+  --color-gold-400: #d7ac50;
+  --color-gold-500: #bf9235;
+  --color-gold-600: #9d7422;
+  --color-gold-700: #795616;
+
+  --color-moss-50: #edf5ef;
+  --color-moss-100: #d5e8da;
+  --color-moss-500: #3d7a52;
+  --color-moss-600: #2f6443;
+  --color-moss-700: #245036;
+
+  --animate-pop: pop 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-rise: rise 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-pulse-ring: pulse-ring 1.6s ease-out infinite;
+}
+
+@keyframes pop {
+  0% { transform: scale(0.97); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes rise {
+  0% { transform: translateY(12px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 rgb(145 25 73 / 0.55); }
+  70% { box-shadow: 0 0 0 10px rgb(145 25 73 / 0); }
+  100% { box-shadow: 0 0 0 0 rgb(145 25 73 / 0); }
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-linen-100 text-ink-900 antialiased;
+  font-feature-settings: "kern", "liga";
+}
+
+::selection {
+  background: var(--color-brand-200);
+}
+
+/* Marcellus (the flared capitals of their logo) has one weight and no italic: never fake them. */
+.font-display {
+  font-synthesis: none;
+}
+
+/* Ivory paper: a faint fibre texture so large surfaces don't feel like flat plastic. */
+.paper {
+  background-color: var(--color-linen-100);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.3 0 0 0 0 0.22 0 0 0 0 0.22 0 0 0 .05 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Small letter-spaced labels, as on a printed menu. */
+.eyebrow {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+/* Dish name ····· price */
+.leader {
+  flex: 1 1 auto;
+  min-width: 1.25rem;
+  margin: 0 0.4rem 0.3em;
+  border-bottom: 1.5px dotted var(--color-linen-400);
+  align-self: flex-end;
+}
+
+/* Torn-paper edge for the bill/receipt. */
+.receipt-edge {
+  --t: 10px;
+  mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) 50% / calc(2 * var(--t)) 100%;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: white;
+  }
+}

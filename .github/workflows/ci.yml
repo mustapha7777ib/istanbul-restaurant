@@ -1,0 +1,69 @@
+# Render deploys a commit only after these checks pass (render.yaml: autoDeployTrigger).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Typecheck, lint, tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: istanbul_test
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/unused
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/istanbul_test
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+
+  image:
+    name: Docker image boots
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: smoke
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build -t istanbul .
+      - name: Start the image (runs migrations), seed, and smoke-test it
+        run: |
+          docker run -d --name app --network host \
+            -e PORT=3000 \
+            -e DATABASE_URL=postgresql://postgres:postgres@localhost:5432/smoke \
+            -e SESSION_SECRET="$(openssl rand -base64 32)" \
+            -e INTERNAL_SECRET="$(openssl rand -base64 32)" \
+            -e RENDER_EXTERNAL_URL=http://localhost:3000 \
+            istanbul
+          for i in $(seq 1 60); do curl -fsS -o /dev/null localhost:3000/staff/login && break; sleep 2; done
+          docker exec app ./node_modules/.bin/tsx prisma/seed.ts > /dev/null
+          curl -fsS -o /dev/null localhost:3000/
+          curl -fsS localhost:3000/api/menu | grep -q "Adana Kebab"
+          curl -fsS "localhost:3000/socket.io/?EIO=4&transport=polling" | grep -q '"sid"'
+      - if: always()
+        run: docker logs app

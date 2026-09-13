@@ -1,0 +1,459 @@
+// Istanbul Cafe & Restaurant, Jabi Lake Mall, Abuja — QR table ordering & staff performance.
+// Money is stored in kobo (integer). Percentages are basis points (750 = 7.5%).
+// Timestamps are UTC; reports convert to Africa/Lagos.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  WAITER
+  KITCHEN
+}
+
+enum Station {
+  KITCHEN
+  BAR
+}
+
+enum SessionStatus {
+  OPEN
+  BILL_REQUESTED
+  PAID
+  CLOSED
+}
+
+/// PLACED → AWAITING_PAYMENT (waiter claimed, collecting payment) → ACCEPTED (paid, stations preparing) → READY → SERVED
+enum OrderStatus {
+  PLACED
+  AWAITING_PAYMENT
+  ACCEPTED
+  READY
+  SERVED
+  REJECTED
+  CANCELLED
+}
+
+enum ItemStatus {
+  PENDING
+  PREPARING
+  READY
+  SERVED
+  VOIDED
+}
+
+enum RequestType {
+  CALL_WAITER
+  BILL
+  WATER
+  CUTLERY
+  OTHER
+}
+
+enum RequestStatus {
+  OPEN
+  ACKNOWLEDGED
+  DONE
+}
+
+enum PaymentMethod {
+  CASH
+  POS
+  TRANSFER
+}
+
+enum PaymentStatus {
+  RECORDED
+  CONFIRMED
+  DISPUTED
+}
+
+enum ReconcileStatus {
+  PENDING
+  CONFIRMED
+  DISPUTED
+}
+
+enum ActorType {
+  STAFF
+  CUSTOMER
+  SYSTEM
+}
+
+enum AwardCategory {
+  WAITER
+  KITCHEN
+}
+
+model Image {
+  id        String   @id @default(cuid())
+  mime      String
+  bytes     Bytes
+  createdAt DateTime @default(now())
+
+  menuItems MenuItem[]
+  staff     Staff[]
+  settings  Settings[]
+}
+
+model Staff {
+  id           String    @id @default(cuid())
+  name         String
+  staffCode    String    @unique
+  role         Role
+  station      Station?
+  secretHash   String
+  phone        String?
+  photoId      String?
+  photo        Image?    @relation(fields: [photoId], references: [id], onDelete: SetNull)
+  active       Boolean   @default(true)
+  failedLogins Int       @default(0)
+  lockedUntil  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  shifts             Shift[]          @relation("ShiftStaff")
+  reconciledShifts   Shift[]          @relation("ShiftReconciledBy")
+  ownedSessions      TableSession[]   @relation("SessionWaiter")
+  closedSessions     TableSession[]   @relation("SessionClosedBy")
+  placedOrders       Order[]          @relation("OrderPlacedBy")
+  claimedOrders      Order[]          @relation("OrderWaiter")
+  servedOrders       Order[]          @relation("OrderServedBy")
+  cancelledOrders    Order[]          @relation("OrderCancelledBy")
+  preparedItems      OrderItem[]      @relation("ItemPreparedBy")
+  voidedItems        OrderItem[]      @relation("ItemVoidedBy")
+  acknowledgedReqs   ServiceRequest[] @relation("RequestAckBy")
+  resolvedReqs       ServiceRequest[] @relation("RequestResolvedBy")
+  collectedPayments  Payment[]        @relation("PaymentCollectedBy")
+  ratings            Rating[]
+  events             ActivityEvent[]
+  awards             StaffAward[]     @relation("AwardStaff")
+  awardsGiven        StaffAward[]     @relation("AwardGivenBy")
+  pushSubscriptions  PushSubscription[]
+}
+
+model Shift {
+  id               String           @id @default(cuid())
+  staffId          String
+  staff            Staff            @relation("ShiftStaff", fields: [staffId], references: [id])
+  clockInAt        DateTime         @default(now())
+  clockOutAt       DateTime?
+  /// Cash the waiter says they are handing in at clock-out.
+  cashDeclaredKobo Int?
+  reconcileStatus  ReconcileStatus  @default(PENDING)
+  reconciledById   String?
+  reconciledBy     Staff?           @relation("ShiftReconciledBy", fields: [reconciledById], references: [id])
+  reconciledAt     DateTime?
+  reconcileNote    String?
+
+  payments Payment[]
+
+  @@index([staffId, clockInAt])
+  @@index([clockOutAt])
+}
+
+model Table {
+  id        String  @id @default(cuid())
+  label     String  @unique
+  area      String
+  seats     Int     @default(4)
+  /// Random token printed in the QR code. Rotate it to invalidate old prints.
+  qrToken   String  @unique
+  active    Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  sessions TableSession[]
+  orders   Order[]
+  requests ServiceRequest[]
+}
+
+/// One guest visit at a table, from first scan to "table cleared".
+model TableSession {
+  id               String        @id @default(cuid())
+  tableId          String
+  table            Table         @relation(fields: [tableId], references: [id])
+  /// Equals tableId while the session is not CLOSED, null afterwards. The unique
+  /// constraint guarantees at most one live session per table.
+  activeTableId    String?       @unique
+  waiterId         String?
+  waiter           Staff?        @relation("SessionWaiter", fields: [waiterId], references: [id])
+  status           SessionStatus @default(OPEN)
+  vatBps           Int           @default(0)
+  serviceChargeBps Int           @default(0)
+  openedAt         DateTime      @default(now())
+  billRequestedAt  DateTime?
+  paidAt           DateTime?
+  closedAt         DateTime?
+  closedById       String?
+  closedBy         Staff?        @relation("SessionClosedBy", fields: [closedById], references: [id])
+
+  orders   Order[]
+  requests ServiceRequest[]
+  payments Payment[]
+  rating   Rating?
+
+  @@index([tableId, openedAt])
+  @@index([status])
+}
+
+model MenuCategory {
+  id        String  @id @default(cuid())
+  name      String
+  sortOrder Int     @default(0)
+  active    Boolean @default(true)
+
+  items MenuItem[]
+}
+
+model MenuItem {
+  id          String       @id @default(cuid())
+  categoryId  String
+  category    MenuCategory @relation(fields: [categoryId], references: [id])
+  name        String
+  description String       @default("")
+  priceKobo   Int
+  imageId     String?
+  image       Image?       @relation(fields: [imageId], references: [id], onDelete: SetNull)
+  station     Station      @default(KITCHEN)
+  /// false = sold out ("86'd") — hidden from ordering until switched back on.
+  isAvailable Boolean      @default(true)
+  /// false = archived (removed from the menu, kept for history).
+  active      Boolean      @default(true)
+  prepMinutes Int          @default(15)
+  tags        String[]     @default([])
+  sortOrder   Int          @default(0)
+  /// Shown in "Chef's picks" at the top of the guest menu.
+  featured    Boolean      @default(false)
+  /// Choices the guest makes, e.g. [{ name: "Side dish", required: true, options: [{ name: "Jollof rice", priceKobo: 0 }] }]
+  optionGroups Json        @default("[]")
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  orderItems OrderItem[]
+
+  @@index([categoryId])
+}
+
+model Order {
+  id              String       @id @default(cuid())
+  seq             Int          @unique @default(autoincrement())
+  sessionId       String
+  session         TableSession @relation(fields: [sessionId], references: [id])
+  tableId         String
+  table           Table        @relation(fields: [tableId], references: [id])
+  status          OrderStatus  @default(PLACED)
+  /// Set when a waiter keyed the order in for the guest.
+  placedByStaffId String?
+  placedByStaff   Staff?       @relation("OrderPlacedBy", fields: [placedByStaffId], references: [id])
+  /// Waiter who claimed (accepted) the order.
+  waiterId        String?
+  waiter          Staff?       @relation("OrderWaiter", fields: [waiterId], references: [id])
+  servedById      String?
+  servedBy        Staff?       @relation("OrderServedBy", fields: [servedById], references: [id])
+  cancelledById   String?
+  cancelledBy     Staff?       @relation("OrderCancelledBy", fields: [cancelledById], references: [id])
+  note            String?
+  cancelReason    String?
+  placedAt        DateTime     @default(now())
+  acceptedAt      DateTime?
+  /// Payment collected; the order went to the kitchen/bar at this moment.
+  paidAt          DateTime?
+  readyAt         DateTime?
+  servedAt        DateTime?
+  cancelledAt     DateTime?
+  /// Set when the order passed the claim timeout and was opened to everyone.
+  escalatedAt     DateTime?
+  /// Last time the waiter was re-pinged because food sat at the pass.
+  readyAlertAt    DateTime?
+
+  items    OrderItem[]
+  payments Payment[]
+
+  @@index([status, placedAt])
+  @@index([sessionId])
+  @@index([waiterId, placedAt])
+  @@index([placedAt])
+}
+
+model OrderItem {
+  id            String     @id @default(cuid())
+  orderId       String
+  order         Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItemId    String
+  menuItem      MenuItem   @relation(fields: [menuItemId], references: [id])
+  /// Name/price/station/prep target are snapshotted so menu edits don't rewrite history.
+  name          String
+  unitPriceKobo Int
+  qty           Int
+  note          String?
+  /// Snapshot of the guest's choices: [{ group, name, priceKobo }]. unitPriceKobo already includes them.
+  options       Json?
+  station       Station
+  prepMinutes   Int
+  status        ItemStatus @default(PENDING)
+  startedAt     DateTime?
+  readyAt       DateTime?
+  servedAt      DateTime?
+  preparedById  String?
+  preparedBy    Staff?     @relation("ItemPreparedBy", fields: [preparedById], references: [id])
+  voidedById    String?
+  voidedBy      Staff?     @relation("ItemVoidedBy", fields: [voidedById], references: [id])
+  voidReason    String?
+  voidedAt      DateTime?
+
+  @@index([orderId])
+  @@index([station, status])
+  @@index([menuItemId])
+}
+
+model ServiceRequest {
+  id               String         @id @default(cuid())
+  sessionId        String
+  session          TableSession   @relation(fields: [sessionId], references: [id])
+  tableId          String
+  table            Table          @relation(fields: [tableId], references: [id])
+  type             RequestType
+  note             String?
+  preferredMethod  PaymentMethod?
+  status           RequestStatus  @default(OPEN)
+  createdAt        DateTime       @default(now())
+  acknowledgedAt   DateTime?
+  acknowledgedById String?
+  acknowledgedBy   Staff?         @relation("RequestAckBy", fields: [acknowledgedById], references: [id])
+  resolvedAt       DateTime?
+  resolvedById     String?
+  resolvedBy       Staff?         @relation("RequestResolvedBy", fields: [resolvedById], references: [id])
+  escalatedAt      DateTime?
+
+  @@index([status, createdAt])
+  @@index([sessionId])
+}
+
+model Payment {
+  id            String        @id @default(cuid())
+  sessionId     String
+  session       TableSession  @relation(fields: [sessionId], references: [id])
+  /// The order this paid for (orders are paid before they go to the kitchen).
+  orderId       String?
+  order         Order?        @relation(fields: [orderId], references: [id])
+  amountKobo    Int
+  tipKobo       Int           @default(0)
+  method        PaymentMethod
+  reference     String?
+  note          String?
+  collectedById String
+  collectedBy   Staff         @relation("PaymentCollectedBy", fields: [collectedById], references: [id])
+  /// The collecting waiter's shift, used for end-of-shift reconciliation.
+  shiftId       String?
+  shift         Shift?        @relation(fields: [shiftId], references: [id])
+  status        PaymentStatus @default(RECORDED)
+  createdAt     DateTime      @default(now())
+
+  @@index([sessionId])
+  @@index([orderId])
+  @@index([collectedById, createdAt])
+  @@index([shiftId])
+  @@index([createdAt])
+}
+
+model Rating {
+  id            String       @id @default(cuid())
+  sessionId     String       @unique
+  session       TableSession @relation(fields: [sessionId], references: [id])
+  waiterId      String?
+  waiter        Staff?       @relation(fields: [waiterId], references: [id])
+  foodRating    Int
+  serviceRating Int
+  comment       String?
+  createdAt     DateTime     @default(now())
+
+  @@index([waiterId, createdAt])
+  @@index([createdAt])
+}
+
+/// Append-only audit trail. Written in the same transaction as the change it describes.
+model ActivityEvent {
+  id         String    @id @default(cuid())
+  at         DateTime  @default(now())
+  actorType  ActorType
+  staffId    String?
+  staff      Staff?    @relation(fields: [staffId], references: [id])
+  action     String
+  entityType String
+  entityId   String
+  tableId    String?
+  sessionId  String?
+  data       Json?
+
+  @@index([at])
+  @@index([staffId, at])
+  @@index([action, at])
+  @@index([tableId, at])
+  @@index([entityType, entityId])
+}
+
+model StaffAward {
+  id          String        @id @default(cuid())
+  /// Month in Africa/Lagos time, "YYYY-MM".
+  month       String
+  category    AwardCategory
+  staffId     String
+  staff       Staff         @relation("AwardStaff", fields: [staffId], references: [id])
+  score       Float
+  breakdown   Json
+  note        String?
+  awardedById String
+  awardedBy   Staff         @relation("AwardGivenBy", fields: [awardedById], references: [id])
+  createdAt   DateTime      @default(now())
+
+  @@unique([month, category])
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  staffId   String
+  staff     Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  @@index([staffId])
+}
+
+/// Single-row table (id = 1).
+model Settings {
+  id                  Int     @id @default(1)
+  restaurantName      String  @default("Istanbul Cafe & Restaurant")
+  tagline             String  @default("A taste of Turkey, for everyone")
+  phone               String  @default("")
+  address             String  @default("")
+  instagram           String  @default("")
+  logoId              String?
+  logo                Image?  @relation(fields: [logoId], references: [id], onDelete: SetNull)
+  vatBps              Int     @default(0)
+  serviceChargeBps    Int     @default(0)
+  claimTimeoutSec     Int     @default(120)
+  requestEscalateSec  Int     @default(180)
+  readyAlertSec       Int     @default(300)
+  /// "HH:MM" in Africa/Lagos. Equal values mean open 24 hours.
+  openingTime         String  @default("08:00")
+  closingTime         String  @default("23:30")
+  /// Manual switch to pause QR ordering (e.g. private event, power outage).
+  orderingEnabled     Boolean @default(true)
+  bankName            String  @default("")
+  bankAccountName     String  @default("")
+  bankAccountNumber   String  @default("")
+  /// { rating, speed, productivity, responsiveness, reliability } — sums to 100.
+  scoreWeights        Json    @default("{\"rating\":35,\"speed\":25,\"productivity\":20,\"responsiveness\":10,\"reliability\":10}")
+  minHoursForAward    Int     @default(20)
+  minOrdersForAward   Int     @default(20)
+  updatedAt           DateTime @updatedAt
+}

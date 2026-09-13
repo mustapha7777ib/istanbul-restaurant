@@ -1,0 +1,63 @@
+{
+  "name": "istanbul-restaurant",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx server.ts",
+    "build": "prisma generate && next build",
+    "start": "NODE_ENV=production tsx server.ts",
+    "lint": "eslint",
+    "typecheck": "next typegen && tsc --noEmit",
+    "test": "vitest run",
+    "e2e": "next build && playwright test",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:seed": "prisma db seed",
+    "db:reset": "prisma migrate reset --force",
+    "postinstall": "prisma generate",
+    "db:demo": "tsx prisma/demo-history.ts",
+    "db:studio:live": "node --env-file=.env.render node_modules/prisma/build/index.js studio --port 5556"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "7.10.0",
+    "@prisma/client": "7.10.0",
+    "@tanstack/react-query": "^5.102.8",
+    "bcryptjs": "^3.0.3",
+    "clsx": "^2.1.1",
+    "dotenv": "^17.4.2",
+    "jose": "^6.2.12",
+    "lucide-react": "^1.45.0",
+    "next": "16.3.5",
+    "pg": "^8.23.0",
+    "prisma": "7.10.0",
+    "qrcode": "^1.5.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "socket.io": "4.8.3",
+    "socket.io-client": "4.8.3",
+    "tailwind-merge": "^3.7.0",
+    "tsx": "^4.23.13",
+    "web-push": "^3.6.7",
+    "zod": "^4.6.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/pg": "^8.23.1",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/web-push": "^3.6.4",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.5",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vitest": "^5.0.0"
+  },
+  "packageManager": "pnpm@10.17.1",
+  "engines": {
+    "node": ">=20.19"
+  }
+}
